@@ -6,6 +6,7 @@
 //! [`KernelStack`] and [`UserStack`].
 
 use crate::config::*;
+use crate::task::current_task_id;
 use crate::trap::TrapContext;
 use core::arch::asm;
 
@@ -51,6 +52,26 @@ impl UserStack {
 /// Get base address of app i.
 fn get_base_i(app_id: usize) -> usize {
     APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT
+}
+/// Get current application address range
+pub fn current_app_range()->(usize,usize){
+    let app_id = current_task_id();
+    let start = get_base_i(app_id);
+    (start,start+APP_SIZE_LIMIT)
+}
+
+/// Get the current_user stack range
+pub fn current_user_stack_range()->(usize,usize){
+    let app_id = current_task_id();
+    let start = USER_STACK[app_id].data.as_ptr() as usize;
+    (start ,start+USER_STACK_SIZE)
+}
+/// judge the address if vaild
+pub fn current_user_addr_vaild(addr:usize)->bool{
+    let in_range = |(start,end):(usize,usize)|{
+        addr >=start && addr <end
+    };
+    in_range(current_app_range()) || in_range(current_user_stack_range())
 }
 
 /// Get the total number of applications.

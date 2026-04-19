@@ -13,8 +13,8 @@ mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
 use crate::config::MAX_APP_NUM;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -23,6 +23,9 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
+static mut TASK_SYSCALL_COUNT:[usize;MAX_APP_NUM * MAX_SYSCALL_NUM] = [
+    0;MAX_APP_NUM * MAX_SYSCALL_NUM
+];
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -135,6 +138,10 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn current_task_id(&self)->usize{
+        self.inner.exclusive_access().current_task
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +175,29 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+/// return current task id
+pub fn current_task_id()->usize{
+    TASK_MANAGER.current_task_id()
+}
+/// using a static array to record the syscall numbers of all tasks.
+pub fn record_syscall(syscall_id:usize){
+    if syscall_id < MAX_SYSCALL_NUM{
+        let current = current_task_id();
+        unsafe{
+            TASK_SYSCALL_COUNT[current * MAX_SYSCALL_NUM +syscall_id] += 1;
+        }
+    }
+}
+/// return syscall count
+pub fn syscall_count(syscall_id :usize)->usize{
+    if syscall_id < MAX_SYSCALL_NUM{
+        let current = current_task_id();
+        unsafe{
+            TASK_SYSCALL_COUNT[current * MAX_SYSCALL_NUM + syscall_id]
+        }
+    }
+    else{
+        0
+    }
 }

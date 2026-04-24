@@ -47,6 +47,11 @@ impl MemorySet {
             areas: Vec::new(),
         }
     }
+    /// return the mut areas
+    // pub fn get_mut_areas(&mut self)->&mut Vec<MapArea>{
+    //     &mut self.areas
+    // }
+
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
@@ -260,6 +265,41 @@ impl MemorySet {
             true
         } else {
             false
+        }
+    
+    }
+    /// 已经确认有相关的映射，然后在解除映射
+    // pub fn ummap(&mut self,vpn:VirtPageNum){
+    //     let mut position =0usize;
+    //     for (id,item) in self.areas.iter().enumerate(){
+    //         if item.data_frames.contains_key(&vpn){
+    //             position = id;
+    //             break;
+    //         }
+    //     }
+    //     let area =&mut self.areas[position];
+    //     let pagetable = &mut self.page_table;
+    //     area.unmap_one(pagetable, vpn);
+    // }
+    /// 精准匹配解除映射
+    pub fn ummap(&mut self,start:VirtPageNum,end:VirtPageNum)->Result<(),()>{
+        let mut position =None;
+        for (id,item) in self.areas.iter().enumerate(){
+            if item.vpn_range.get_start()==start && item.vpn_range.get_end()==end{
+                position = Some(id);
+                break;
+            }
+        }
+        match position{
+            Some(id)=>{
+                let area = &mut self.areas.remove(id);
+                let pagetable = &mut self.page_table;
+                area.unmap(pagetable);
+                return Ok(());
+            },
+            None=>{
+                return Err(());
+            }
         }
     }
 }

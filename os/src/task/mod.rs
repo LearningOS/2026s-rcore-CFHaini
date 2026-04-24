@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -153,6 +154,32 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// return the current_task id
+    fn current_task_id(&self)->usize{
+        self.inner.exclusive_access().current_task
+    }
+    /// record the syscall id count 
+    fn syscall_record(&self,id:usize){
+        let current_task_id = current_task_id();
+        let mut inner = self.inner.exclusive_access();
+        inner.tasks[current_task_id].syscall_record(id);
+    }
+    /// return the syscall count
+    fn syscall_count(&self,id:usize)->usize{
+        let current_task_id = current_task_id();
+        let inner = self.inner.exclusive_access();
+        inner.tasks[current_task_id].syscall_count(id)
+    }
+    /// return the current task memory set
+    fn current_task_memory_set(&self)->&'static mut MemorySet{
+        let current = current_task_id();
+        let task = &mut self.inner.exclusive_access().tasks[current].memory_set as *mut MemorySet;
+        unsafe{
+            (task.as_mut()).unwrap()
+        }
+    }
+
+    
 }
 
 /// Run the first task in task list.
@@ -201,4 +228,20 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+/// return the current task id
+pub fn current_task_id()->usize{
+    TASK_MANAGER.current_task_id()
+}
+/// record the syscall number
+pub fn syscall_record(id:usize){
+    TASK_MANAGER.syscall_record(id);
+}
+/// return the syscall count numbers
+pub fn syscall_count(id:usize)->usize{
+    TASK_MANAGER.syscall_count(id)
+}
+/// return the currnet_task_memory_set
+pub fn current_task_memory_set()->&'static mut MemorySet{
+    TASK_MANAGER.current_task_memory_set()
 }

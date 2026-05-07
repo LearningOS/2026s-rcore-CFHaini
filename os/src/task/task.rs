@@ -68,6 +68,11 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+    /// priority of process
+    pub priority:isize,
+    ///累积的步长
+    pub stride:usize,
+
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +123,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority:1,
+                    stride:0,
                 })
             },
         };
@@ -191,6 +198,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    priority:parent_inner.priority,
+                    stride: parent_inner.stride,
                 })
             },
         });
@@ -235,6 +244,22 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    /// set the priority of program
+    pub fn set_program_priority(&mut self,prio:isize)->isize{
+        if prio < 2 {
+            return -1;
+        }
+        let mut inner = self.inner_exclusive_access();
+        // let priority = unsafe{(&mut self.inner_exclusive_access().priority as *mut isize).as_mut().unwrap()};
+        if inner.priority==0 || inner.priority ==prio{
+            inner.priority = prio;
+        }else{
+            inner.stride = inner.stride * inner.stride /(prio as usize);
+            inner.priority = prio;
+        }
+        drop(inner);
+        return prio;
     }
 }
 

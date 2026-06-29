@@ -318,6 +318,27 @@ impl MemorySet {
             false
         }
     }
+    ///精准匹配
+    pub fn ummap(&mut self,start_vpn:VirtPageNum,end_vpn:VirtPageNum)->Result<(),()>{
+        let mut position = None;
+        for (id,item) in self.areas.iter().enumerate(){
+            if item.vpn_range.get_start()==start_vpn &&item.vpn_range.get_end()==end_vpn{
+                position = Some(id);
+                break;
+            }
+        }
+        match position{
+            Some(id)=>{
+                let area = &mut self.areas.remove(id);
+                let pagetable = &mut self.page_table;
+                area.unmap(pagetable);
+                return Ok(());
+            },
+            None=>{
+                return Err(());
+            }
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

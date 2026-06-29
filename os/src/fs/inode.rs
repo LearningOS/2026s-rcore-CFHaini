@@ -13,6 +13,8 @@ use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
+use alloc::collections::btree_map::{BTreeMap};
+// use super::SharedInode;
 
 /// inode in memory
 /// A wrapper around a filesystem inode
@@ -53,12 +55,81 @@ impl OSInode {
         }
         v
     }
+    /// get the block_id of OSInode
+    pub fn get_block_id(&self)->usize{
+        self.inner.exclusive_access().inode.block_id()
+    }
+    /// get the block_offset of OSInode
+    pub fn get_block_offset(&self)->usize{
+        self.inner.exclusive_access().inode.block_offset()
+    }
 }
 
 lazy_static! {
     pub static ref ROOT_INODE: Arc<Inode> = {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
+    };
+}
+pub struct SharedInodemanager{
+    pub inner:BTreeMap<SharedInode,usize>
+}
+
+/// SharedInode 结构体，记录（block_id,block_offset）信息
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct SharedInode{
+    // 我自己设计的轻量级来记录inode里面的（block_id,block_offset）的数据结构
+    block_id:usize,
+    block_offset:usize,
+}
+/// 方法
+impl SharedInode{
+    /// new SharedInode
+    pub fn new(block_id:usize,block_offset:usize)->Self{
+        Self { block_id, block_offset}
+    }
+    
+}
+impl SharedInodemanager{
+    pub fn new()->Self{
+        Self { 
+            inner:BTreeMap::new()
+         }
+    }
+    pub fn insert(&mut self,data:SharedInode){
+        if let Some(x) = self.inner.get_mut(&data){
+            *x +=1;
+        }
+        else{
+            self.inner.insert(data,1);
+        }
+    }
+    pub fn check(&self,data:SharedInode)->Option<usize>{
+        if let Some(x) = self.inner.get(&data){
+            Some(*x)
+        }else{
+            None
+        }
+    }
+    pub fn delete(&mut self,data:&SharedInode){
+        self.inner.remove(data);
+    }
+    pub fn modify(&mut self,data:SharedInode)->Option<usize>{
+        if let Some(x) = self.inner.get_mut(&data){
+            *x -=1;
+        }
+        let x = *self.inner.get(&data).unwrap();
+
+        if x==0{
+            self.delete(&data);
+        }
+        Some(x)
+    }
+}
+
+lazy_static!{
+    pub static ref SHARE_INDOE_MANAGER:UPSafeCell<SharedInodemanager> = {
+       unsafe{ UPSafeCell::new(SharedInodemanager::new()) }
     };
 }
 
@@ -108,12 +179,20 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
         if let Some(inode) = ROOT_INODE.find(name) {
             // clear size
             inode.clear();
+            // let data = SharedInode::new(inode.block_id(),inode.block_offset());
+            // SHARE_INDOE_MANAGER.exclusive_access().insert(data);
             Some(Arc::new(OSInode::new(readable, writable, inode)))
         } else {
             // create file
             ROOT_INODE
                 .create(name)
-                .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+                .map(|inode| 
+                    {   
+                        //只需要在创建文件时才把(block_id,block_offset)加入管理器
+                        let data = SharedInode::new(inode.block_id(),inode.block_offset());
+                        SHARE_INDOE_MANAGER.exclusive_access().insert(data);
+                        Arc::new(OSInode::new(readable, writable, inode))
+                    })
         }
     } else {
         ROOT_INODE.find(name).map(|inode| {
@@ -156,4 +235,47 @@ impl File for OSInode {
         }
         total_write_size
     }
+    fn return_block_info(&self)->(usize,usize,u32) {
+        let block_id = self.get_block_id();
+        let block_offset = self.get_block_offset();
+        let inode_id = self.inner.exclusive_access().inode.get_inode_id_by_block(block_id as u32, block_offset);
+        (block_id,block_offset,inode_id)
+
+    }
+    fn file_type(&self)->usize {
+        match self.inner.exclusive_access().inode.get_file_type(){
+            true=>{
+                1usize
+            },
+            false=>{
+                0usize
+            }
+        }
+    }
+}
+
+/// open file get inode id
+pub fn open_file_get_inode_id(name:&str)->Option<u32>{
+    ROOT_INODE.find_return_inode_id(name) 
+}
+/// link modify
+pub fn link_modify(inode_id:u32,name:&str){
+   let (block_id,block_offset) = ROOT_INODE.inode_link_modify(inode_id,name);
+   let data = SharedInode::new(block_id as usize,block_offset);
+   SHARE_INDOE_MANAGER.exclusive_access().insert(data);
+}
+/// check sharedinode for system call fstat
+pub fn check_sharedinode(data:SharedInode)->Option<usize>{
+    SHARE_INDOE_MANAGER.exclusive_access().check(data)
+}
+/// unlink modify
+pub fn unlink_modify(inode_id:u32,name:&str){
+    let inode = ROOT_INODE.find(name).unwrap();
+    let (block_id,block_offset) = ROOT_INODE.inode_unlink_modify(inode_id, name);
+    let data = SharedInode::new(block_id as usize,block_offset);
+    let cnt = SHARE_INDOE_MANAGER.exclusive_access().modify(data).unwrap();
+    if cnt ==0{
+        inode.clear();
+    }
+
 }
